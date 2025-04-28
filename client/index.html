@@ -1,0 +1,76 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <style>
+    #subtitleOverlay {
+      position: fixed;
+      bottom: 10%;
+      width: 100%;
+      text-align: center;
+      font-size: 1.2em;
+      background: rgba(0,0,0,0.5);
+      color: #fff;
+      padding: 0.5em;
+    }
+  </style>
+</head>
+<body>
+  <video id="video" controls autoplay crossorigin="anonymous"></video> <!-- CORS-enabled video :contentReference[oaicite:12]{index=12} -->
+  <canvas id="canvas" style="display:none;"></canvas>
+  <div id="subtitleOverlay">Loading subtitles…</div>
+
+  <!-- OCR -->
+  <script src="https://cdn.jsdelivr.net/npm/tesseract.js@5/dist/tesseract.min.js"></script> <!-- Tesseract.js OCR :contentReference[oaicite:13]{index=13} -->
+  <!-- Language Detection -->
+  <script type="module">
+    import { franc } from 'https://cdn.jsdelivr.net/npm/franc@6.2.0/index.min.js'; // franc language ID :contentReference[oaicite:14]{index=14}
+
+    // 1. Prompt for YouTube URL once
+    const video = document.getElementById('video');
+    const ytURL = prompt('Enter YouTube URL'); 
+    video.src = `http://localhost:3000/stream?url=${encodeURIComponent(ytURL)}`;
+
+    // 2. Initialize Tesseract worker
+    const { createWorker } = Tesseract;
+    const worker = createWorker();
+    (async () => {
+      await worker.load();
+      await worker.loadLanguage('eng');    // load English; you can load multiple
+      await worker.initialize('eng');
+    })();
+
+    // 3. Every 500ms: capture → OCR → detect → translate → overlay
+    setInterval(async () => {
+      const canvas = document.getElementById('canvas');
+      const ctx = canvas.getContext('2d');
+      canvas.width = video.videoWidth;
+      canvas.height = video.videoHeight;
+      ctx.drawImage(video, 0, 0);         // draw frame on canvas :contentReference[oaicite:15]{index=15}
+
+      // OCR
+      const { data: { text } } = await worker.recognize(canvas);
+
+      // Detect source language
+      let srcLang = franc(text);
+      if (srcLang === 'und') srcLang = 'auto';
+
+      // Translate via LibreTranslate
+      const res = await fetch('https://libretranslate.com/translate', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          q: text,
+          source: srcLang,
+          target: 'en',                   // change to any target BCP-47 code
+          format: 'text'
+        })
+      });
+      const { translatedText } = await res.json();
+
+      // Overlay
+      document.getElementById('subtitleOverlay').innerText = translatedText;
+    }, 500);
+  </script>
+</body>
+</html>
